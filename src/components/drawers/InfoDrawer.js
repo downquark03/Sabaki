@@ -11,6 +11,7 @@ import {
   noop,
 } from '../../modules/helper.js'
 import i18n from '../../i18n.js'
+import {createPlayers, normalizeTeamSize} from '../../modules/rotation.js'
 
 import Drawer from './Drawer.js'
 
@@ -49,6 +50,14 @@ export default class InfoDrawer extends Component {
       komi: null,
       handicap: 0,
       size: [null, null],
+
+      // Pair Go
+
+      teamSize: 1,
+      extraBlackNames: [],
+      extraBlackRanks: [],
+      extraWhiteNames: [],
+      extraWhiteRanks: [],
     }
 
     this.handleSubmitButtonClick = async (evt) => {
@@ -83,6 +92,37 @@ export default class InfoDrawer extends Component {
       }
 
       sabaki.setGameInfo(data)
+
+      // Persist pair Go team configuration to the tree
+
+      let teamSize = normalizeTeamSize(this.state.teamSize)
+
+      sabaki.setTeamInfo(
+        teamSize > 1
+          ? {
+              teamSize,
+              players: createPlayers(teamSize, {
+                blackNames: [
+                  this.state.blackName,
+                  ...this.state.extraBlackNames,
+                ],
+                whiteNames: [
+                  this.state.whiteName,
+                  ...this.state.extraWhiteNames,
+                ],
+                blackRanks: [
+                  this.state.blackRank,
+                  ...this.state.extraBlackRanks,
+                ],
+                whiteRanks: [
+                  this.state.whiteRank,
+                  ...this.state.extraWhiteRanks,
+                ],
+              }),
+            }
+          : {teamSize: 1},
+      )
+
       sabaki.closeDrawer()
 
       this.state.syncerEngines.forEach((syncerEngine, i) => {
@@ -143,6 +183,24 @@ export default class InfoDrawer extends Component {
         blackRank: whiteRank,
         whiteRank: blackRank,
       }))
+    }
+
+    this.handleTeamSizeChange = (evt) => {
+      let {value} = evt.currentTarget
+
+      this.setState({teamSize: value === '' ? 1 : normalizeTeamSize(value)})
+    }
+
+    this.handleExtraPlayerInput = (team, field, index) => (evt) => {
+      let key = `extra${team}${field}`
+      let {value} = evt.currentTarget
+
+      this.setState((state) => {
+        let values = [...state[key]]
+        values[index] = value
+
+        return {[key]: values}
+      })
     }
 
     this.handleDateInputChange = (evt) => {
@@ -266,8 +324,38 @@ export default class InfoDrawer extends Component {
     whiteEngineSyncerId,
   }) {
     if (!this.props.show && show) {
+      let {teamSize, players} = sabaki.getTeamInfo()
+      let teamValues = (team, field) =>
+        players
+          .filter((player) => player.team === team)
+          .map((player) => player[field])
+
+      let blackNames = teamValues(0, 'name')
+      let blackRanks = teamValues(0, 'rank')
+      let whiteNames = teamValues(1, 'name')
+      let whiteRanks = teamValues(1, 'rank')
+
       this.setState({
         ...gameInfo,
+
+        // In pair Go games, the first row holds each team's seat 0 player;
+        // the remaining seats are edited in the extra rows below
+
+        ...(teamSize > 1
+          ? {
+              blackName: blackNames[0] || null,
+              blackRank: blackRanks[0] || null,
+              whiteName: whiteNames[0] || null,
+              whiteRank: whiteRanks[0] || null,
+            }
+          : {}),
+
+        teamSize,
+        extraBlackNames: blackNames.slice(1),
+        extraBlackRanks: blackRanks.slice(1),
+        extraWhiteNames: whiteNames.slice(1),
+        extraWhiteRanks: whiteRanks.slice(1),
+
         syncerEngines: [blackEngineSyncerId, whiteEngineSyncerId].map((id) => {
           let syncer = attachedEngineSyncers.find((syncer) => syncer.id === id)
           return syncer == null ? null : {syncer, engine: syncer.engine}
@@ -424,9 +512,15 @@ export default class InfoDrawer extends Component {
       komi,
       handicap,
       size,
+      teamSize,
+      extraBlackNames,
+      extraBlackRanks,
+      extraWhiteNames,
+      extraWhiteRanks,
     },
   ) {
     let emptyTree = gameTree.root.children.length === 0
+    let normalizedTeamSize = normalizeTeamSize(teamSize)
 
     return h(
       Drawer,
@@ -512,9 +606,77 @@ export default class InfoDrawer extends Component {
           }),
         ),
 
+        normalizedTeamSize > 1 &&
+          [...Array(normalizedTeamSize - 1)].map((_, i) =>
+            h(
+              'section',
+              {key: `pair-seat-${i + 1}`, class: 'pair-go-seat'},
+
+              h(
+                'span',
+                {},
+
+                h('input', {
+                  type: 'text',
+                  name: `rank_b${i + 2}`,
+                  placeholder: t('Rank'),
+                  value: extraBlackRanks[i] || '',
+                  onInput: this.handleExtraPlayerInput('Black', 'Ranks', i),
+                }),
+
+                h('input', {
+                  type: 'text',
+                  name: `name_b${i + 2}`,
+                  placeholder: `${t('Black')} ${i + 2}`,
+                  value: extraBlackNames[i] || '',
+                  onInput: this.handleExtraPlayerInput('Black', 'Names', i),
+                }),
+              ),
+
+              h('img', {
+                class: 'current-player',
+                src: './img/ui/player_1.svg',
+                height: 31,
+              }),
+
+              h(
+                'span',
+                {},
+
+                h('input', {
+                  type: 'text',
+                  name: `name_w${i + 2}`,
+                  placeholder: `${t('White')} ${i + 2}`,
+                  value: extraWhiteNames[i] || '',
+                  onInput: this.handleExtraPlayerInput('White', 'Names', i),
+                }),
+
+                h('input', {
+                  type: 'text',
+                  name: `rank_w${i + 2}`,
+                  placeholder: t('Rank'),
+                  value: extraWhiteRanks[i] || '',
+                  onInput: this.handleExtraPlayerInput('White', 'Ranks', i),
+                }),
+              ),
+            ),
+          ),
+
         h(
           'ul',
           {},
+          h(
+            InfoDrawerItem,
+            {title: t('Team Size')},
+            h('input', {
+              type: 'number',
+              name: 'team-size',
+              min: 1,
+              max: 16,
+              value: normalizedTeamSize,
+              onInput: this.handleTeamSizeChange,
+            }),
+          ),
           h(
             InfoDrawerItem,
             {title: t('Name')},
