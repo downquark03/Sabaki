@@ -140,7 +140,7 @@ class Sabaki extends EventEmitter {
       isMinimized: () => this._windowState.isMinimized,
       setMenuBarVisibility: (v) => window.sabaki.window.setMenuBarVisibility(v),
       setProgressBar: (p) => window.sabaki.window.setProgressBar(p),
-      getContentSize: () => window.sabaki.window.getContentSize(),
+      getContentSize: () => this._windowState.contentSize,
       setContentSize: (w, h) => window.sabaki.window.setContentSize(w, h),
       close: () => window.sabaki.window.close(),
       on: (event, callback) => {
@@ -169,10 +169,10 @@ class Sabaki extends EventEmitter {
           return setting.get('app.zoom_factor')
         },
         set zoomFactor(f) {
-          setting.set('app.zoom_factor', f)
+          window.sabaki.webContents.setZoomFactor(f)
         },
         set audioMuted(m) {
-          window.sabaki.window.setAudioMuted(m)
+          window.sabaki.webContents.setAudioMuted(m)
         },
       },
     }
@@ -213,10 +213,10 @@ class Sabaki extends EventEmitter {
 
     // Listen for window events to keep state in sync
     window.sabaki.window.on('maximize', () => {
-      this._windowState.isFullScreen = true
+      this._windowState.isMaximized = true
     })
     window.sabaki.window.on('unmaximize', () => {
-      this._windowState.isFullScreen = false
+      this._windowState.isMaximized = false
     })
     window.sabaki.window.on('resize', async () => {
       this._windowState.contentSize =
@@ -837,8 +837,8 @@ class Sabaki extends EventEmitter {
       label: ['O', null, 'X'],
     }
 
-    for (let x = 0; x < board.width; x++) {
-      for (let y = 0; y < board.height; y++) {
+    for (let x = 0; x < width; x++) {
+      for (let y = 0; y < height; y++) {
         let i = getIndexFromVertex([x, y])
         let s = signMap[y][x]
 
@@ -1720,7 +1720,7 @@ class Sabaki extends EventEmitter {
   }
 
   goToSiblingVariation(step) {
-    let {gameTrees, gameIndex, gameCurrents, treePosition} = this.state
+    let {gameTrees, gameIndex, treePosition} = this.state
     let tree = gameTrees[gameIndex]
     let section = [...tree.getSection(tree.getLevel(treePosition))]
     let index = section.findIndex((node) => node.id === treePosition)
