@@ -18,6 +18,7 @@ import * as gametree from './gametree.js'
 import * as gobantransformer from './gobantransformer.js'
 import * as gtplogger from './gtplogger.js'
 import * as helper from './helper.js'
+import * as pairgo from './pairgo.js'
 import * as sound from './sound.js'
 
 deadstones.useFetch('./node_modules/@sabaki/deadstones/wasm/deadstones_bg.wasm')
@@ -139,7 +140,7 @@ class Sabaki extends EventEmitter {
       isMinimized: () => this._windowState.isMinimized,
       setMenuBarVisibility: (v) => window.sabaki.window.setMenuBarVisibility(v),
       setProgressBar: (p) => window.sabaki.window.setProgressBar(p),
-      getContentSize: () => this._windowState.contentSize,
+      getContentSize: () => window.sabaki.window.getContentSize(),
       setContentSize: (w, h) => window.sabaki.window.setContentSize(w, h),
       close: () => window.sabaki.window.close(),
       on: (event, callback) => {
@@ -168,10 +169,10 @@ class Sabaki extends EventEmitter {
           return setting.get('app.zoom_factor')
         },
         set zoomFactor(f) {
-          window.sabaki.webContents.setZoomFactor(f)
+          setting.set('app.zoom_factor', f)
         },
         set audioMuted(m) {
-          window.sabaki.webContents.setAudioMuted(m)
+          window.sabaki.window.setAudioMuted(m)
         },
       },
     }
@@ -212,10 +213,10 @@ class Sabaki extends EventEmitter {
 
     // Listen for window events to keep state in sync
     window.sabaki.window.on('maximize', () => {
-      this._windowState.isMaximized = true
+      this._windowState.isFullScreen = true
     })
     window.sabaki.window.on('unmaximize', () => {
-      this._windowState.isMaximized = false
+      this._windowState.isFullScreen = false
     })
     window.sabaki.window.on('resize', async () => {
       this._windowState.contentSize =
@@ -269,6 +270,12 @@ class Sabaki extends EventEmitter {
       },
       get currentPlayer() {
         return self.getPlayer(state.treePosition)
+      },
+      get teamInfo() {
+        return pairgo.getTeamInfo(this.gameTree)
+      },
+      get currentSeat() {
+        return pairgo.getCurrentSeat(this.gameTree, state.treePosition)
       },
       get lastPlayer() {
         let node = this.gameTree.get(state.treePosition)
@@ -830,8 +837,8 @@ class Sabaki extends EventEmitter {
       label: ['O', null, 'X'],
     }
 
-    for (let x = 0; x < width; x++) {
-      for (let y = 0; y < height; y++) {
+    for (let x = 0; x < board.width; x++) {
+      for (let y = 0; y < board.height; y++) {
         let i = getIndexFromVertex([x, y])
         let s = signMap[y][x]
 
@@ -1253,11 +1260,32 @@ class Sabaki extends EventEmitter {
 
     // Update data
 
+    let {teamSize} = pairgo.getTeamInfo(tree)
+    let moveSeat =
+      teamSize > 1 ? pairgo.getCurrentSeat(tree, treePosition) : null
+
     let nextTreePosition
     let newTree = tree.mutate((draft) => {
       nextTreePosition = draft.appendNode(treePosition, {
         [color]: [sgf.stringifyVertex(vertex)],
       })
+
+      // In pair Go games, record which seat played this move
+
+      if (moveSeat != null) {
+        let existing = tree.get(nextTreePosition)
+
+        if (
+          existing == null ||
+          existing.data[pairgo.PAIR_GO_PROPS.moveSeat] == null
+        ) {
+          draft.updateProperty(
+            nextTreePosition,
+            pairgo.PAIR_GO_PROPS.moveSeat,
+            [String(moveSeat)],
+          )
+        }
+      }
     })
 
     let createNode = tree.get(nextTreePosition) == null
@@ -1692,7 +1720,7 @@ class Sabaki extends EventEmitter {
   }
 
   goToSiblingVariation(step) {
-    let {gameTrees, gameIndex, treePosition} = this.state
+    let {gameTrees, gameIndex, gameCurrents, treePosition} = this.state
     let tree = gameTrees[gameIndex]
     let section = [...tree.getSection(tree.getLevel(treePosition))]
     let index = section.findIndex((node) => node.id === treePosition)
@@ -2415,6 +2443,16 @@ class Sabaki extends EventEmitter {
         isNaN(data.handicap) ? 0 : +data.handicap,
       )
     }
+
+    this.setCurrentTreePosition(newTree, this.state.treePosition)
+  }
+
+  getTeamInfo() {
+    return pairgo.getTeamInfo(this.inferredState.gameTree)
+  }
+
+  setTeamInfo(data) {
+    let newTree = pairgo.setTeamInfo(this.inferredState.gameTree, data)
 
     this.setCurrentTreePosition(newTree, this.state.treePosition)
   }
